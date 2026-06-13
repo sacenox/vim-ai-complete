@@ -31,7 +31,7 @@ function M.complete(user_prompt, has_range)
   -- This command only makes sense when text is selected. If there is no range,
   -- show an error and stop before changing anything.
   if has_range == 0 then
-    vim.notify('pi-complete: select text visually first', vim.log.levels.ERROR)
+    vim.notify('ai-complete: select text visually first', vim.log.levels.ERROR)
     return
   end
 
@@ -52,7 +52,7 @@ function M.complete(user_prompt, has_range)
   local selected_type = vim.fn.getregtype('z')
 
   -- Let the user know Neovim is about to block while pi generates a response.
-  vim.notify('Pi is generating...', vim.log.levels.INFO)
+  vim.notify('ai-complete: generating...', vim.log.levels.INFO)
   vim.cmd('redraw')
 
   -- Call the external `pi` program with a prompt built from the user instruction
@@ -77,7 +77,7 @@ function M.complete(user_prompt, has_range)
   -- the buffer unchanged.
   if vim.v.shell_error ~= 0 then
     vim.fn.setreg('z', old_z, old_z_type)
-    vim.notify('pi-complete: pi failed', vim.log.levels.ERROR)
+    vim.notify('ai-complete: pi failed', vim.log.levels.ERROR)
     return
   end
 
@@ -90,7 +90,7 @@ function M.complete(user_prompt, has_range)
   vim.fn.setreg('z', old_z, old_z_type)
 
   -- Let the user know we are done.
-  vim.notify('Pi is done.', vim.log.levels.INFO)
+  vim.notify('ai-complete: done.', vim.log.levels.INFO)
   vim.cmd('redraw')
 end
 

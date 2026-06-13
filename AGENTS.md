@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Repository notes for coding agents working on `vim-pi-complete`.
+Repository notes for coding agents working on `vim-ai-complete`.
 
 ## Project overview
 
-This is a minimal Neovim plugin that exposes `:Pi <prompt>` for AI-assisted edits. The user visually selects text, runs `:Pi`, and the plugin replaces the selection with stdout from the `pi` coding agent.
+This is a minimal Neovim plugin that exposes `:Ai <prompt>` for AI-assisted edits. The user visually selects text, runs `:Ai`, and the plugin replaces the selection with stdout from the `pi` coding agent.
 
 The plugin intentionally invokes `pi` in a constrained way:
 
@@ -15,13 +15,13 @@ The plugin intentionally invokes `pi` in a constrained way:
 
 ## Repository layout
 
-- `plugin/pi_complete.lua`
+- `plugin/ai_complete.lua`
   - Neovim runtime entrypoint.
-  - Guards against double loading with `vim.g.loaded_pi_complete`.
-  - Defines the public `:Pi` command.
-  - Adds a lowercase `:pi` command-line abbreviation.
+  - Guards against double loading with `vim.g.loaded_ai_complete`.
+  - Defines the public `:Ai` command.
+  - Adds a lowercase `:ai` command-line abbreviation.
 
-- `lua/pi_complete/init.lua`
+- `lua/ai_complete/init.lua`
   - Main implementation module.
   - Builds the prompt sent to `pi`.
   - Captures the visual selection using register `z`.
@@ -37,7 +37,7 @@ The plugin intentionally invokes `pi` in a constrained way:
 
 ## Important behavior to preserve
 
-- `:Pi` is selection-oriented. The current implementation relies on `gv` to restore the previous visual selection.
+- `:Ai` is selection-oriented. The current implementation relies on `gv` to restore the previous visual selection.
 - Register `z` is temporary scratch space. Always save and restore its contents and type.
 - Failed `pi` calls should leave the buffer unchanged.
 - The generated text should be pasted using the original selection type: characterwise, linewise, or blockwise.
