@@ -1,22 +1,38 @@
 # vim-ai-complete
 
-A simple Neovim plugin that mimics Cursor's selection prompt and Zed's editor assist feature using the pi coding agent's non-interactive mode.
+A simple Neovim plugin that mimics Cursor's selection prompt and Zed's editor assist feature using a configurable LLM CLI (`pi` by default).
 
-## Pi as your LLM
+## LLM command
 
-Currently, the plugin expects `pi` to be installed and ready to use. The arguments this extension sends are the prompt and the read-only tool list, and it sets the thinking level to minimal for speed.
+By default, the plugin uses `pi` with the original read-only tools and minimal thinking level:
+
+```lua
+{ "pi", "-t", "read,find,ls,grep", "--thinking", "minimal", "-p", "{prompt}" }
+```
+
+The generated prompt replaces `{prompt}`. On Neovim 0.10+, stdout becomes the replacement text; older versions fall back to Neovim's legacy `system()` output, which may include stderr.
+
+To use another CLI, call `setup()` from your Neovim config:
+
+```lua
+require("ai_complete").setup({
+  command = { "my-llm", "--prompt", "{prompt}" },
+})
+```
+
+If `{prompt}` is omitted, the prompt is appended as the final argument. For advanced cases, `command` may be a function that receives the prompt and returns the full argv list.
 
 ## How to use
 
 Select a visual block, line, or selection, and then type `:Ai <your prompt here>`. The selection will be replaced with the model's output.
-You can give any kind of prompt, but the agent has no edit tools, so it can only reply with the new text, and it is instructed to do so.
+You can give any kind of prompt. The plugin uses the configured command's output as the replacement, and the default prompt instructs it to return only that replacement.
 There is no visual feedback on submit, but if an error occurs, you will see it.
 
-Just select, prompt, and send. Then hope for the best. Each prompt is its own individual session; there is no continuation, though you can resume from pi itself.
+Just select, prompt, and send. Then hope for the best. Each prompt is its own individual session; there is no continuation unless your configured CLI provides one.
 
 ## How to install
 
-This plugin uses the standard Neovim plugin layout, so it should work with any plugin manager. Make sure the external `pi` executable is installed and available on Neovim's `$PATH`.
+This plugin uses the standard Neovim plugin layout, so it should work with any plugin manager. Make sure `pi` is installed and available on Neovim's `$PATH`, or configure another LLM command.
 
 ### lazy.nvim / LazyVim
 
