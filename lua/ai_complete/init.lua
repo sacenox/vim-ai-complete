@@ -8,7 +8,7 @@ local config = {
     '-t',
     'read,find,ls,grep',
     '--thinking',
-    'minimal',
+    'high',
     '-p',
     PROMPT_PLACEHOLDER,
   },
