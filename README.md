@@ -1,18 +1,18 @@
 # vim-ai-complete
 
-A simple Neovim plugin that mimics Cursor's selection prompt and Zed's editor assist feature using a configurable LLM CLI (`pi` by default).
+A small Neovim plugin for applying an LLM instruction to selected text.
+
+## Usage
+
+1. Select text in Visual mode.
+2. Run `:Ai <prompt>`.
+3. The selected text is replaced when generation succeeds.
+
+Characterwise, linewise, and blockwise selections are supported. If generation fails, the buffer is left unchanged. A completed replacement is a normal Neovim edit and can be reverted with `u`.
 
 ## LLM command
 
-By default, the plugin uses `pi` with the original read-only tools and minimal thinking level:
-
-```lua
-{ "pi", "-t", "read,find,ls,grep", "--thinking", "minimal", "-p", "{prompt}" }
-```
-
-The generated prompt replaces `{prompt}`. On Neovim 0.10+, stdout becomes the replacement text; older versions fall back to Neovim's legacy `system()` output, which may include stderr.
-
-To use another CLI, call `setup()` from your Neovim config:
+The plugin uses `pi` by default. Make sure it is available on Neovim's `$PATH`, or configure another command:
 
 ```lua
 require("ai_complete").setup({
@@ -20,15 +20,7 @@ require("ai_complete").setup({
 })
 ```
 
-If `{prompt}` is omitted, the prompt is appended as the final argument. For advanced cases, `command` may be a function that receives the prompt and returns the full argv list.
-
-## How to use
-
-Select a visual block, line, or selection, and then type `:Ai <your prompt here>`. The selection will be replaced with the model's output.
-You can give any kind of prompt. The plugin uses the configured command's output as the replacement, and the default prompt instructs it to return only that replacement.
-There is no visual feedback on submit, but if an error occurs, you will see it.
-
-Just select, prompt, and send. Then hope for the best. Each prompt is its own individual session; there is no continuation unless your configured CLI provides one.
+The configured command receives the generated prompt and writes replacement text to standard output. `{prompt}` may appear anywhere in the argument list; if omitted, the prompt is appended. For advanced integrations, `command` may be a function that receives the prompt and returns an argument list.
 
 ## How to install
 
