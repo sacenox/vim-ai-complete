@@ -1,198 +1,180 @@
+local agent = require('ai_complete.agent')
+local Auth = require('ai_complete.auth.openai_codex')
+local Request = require('ai_complete.request')
+
 local M = {}
 
-local PROMPT_PLACEHOLDER = '{prompt}'
-
 local config = {
-  command = {
-    'pi',
-    '-t',
-    'read,find,ls,grep',
-    '--thinking',
-    'high',
-    '-p',
-    PROMPT_PLACEHOLDER,
-  },
+  provider = 'openai-codex',
+  model = 'gpt-5.6-sol',
+  reasoning_effort = 'high',
+  max_tool_rounds = 8,
+  connect_timeout = 10,
+  request_timeout = 300,
+  auth_timeout = 300,
+  refresh_window = 60,
+  max_retries = 3,
+  retry_delay_ms = 500,
 }
+
+local configurable = {
+  provider = 'string',
+  model = 'string',
+  reasoning_effort = 'string',
+  max_tool_rounds = 'number',
+  connect_timeout = 'number',
+  request_timeout = 'number',
+  auth_timeout = 'number',
+  refresh_window = 'number',
+  max_retries = 'number',
+  retry_delay_ms = 'number',
+}
+
+local dependencies = {}
+local auth
 
 M.config = config
 
 function M.setup(opts)
   opts = opts or {}
-
-  if opts.command ~= nil then
-    config.command = opts.command
+  for key, expected in pairs(configurable) do
+    if opts[key] ~= nil then
+      if type(opts[key]) ~= expected then
+        error(string.format('ai-complete: %s must be a %s', key, expected))
+      end
+      config[key] = opts[key]
+    end
   end
+
+  if config.provider ~= 'openai-codex' then
+    error('ai-complete: only the openai-codex provider is supported')
+  end
+  if config.model == '' then
+    error('ai-complete: model must not be empty')
+  end
+  local efforts = { none = true, minimal = true, low = true, medium = true, high = true, xhigh = true }
+  if not efforts[config.reasoning_effort] then
+    error('ai-complete: invalid reasoning_effort')
+  end
+  for _, key in ipairs({ 'max_tool_rounds', 'connect_timeout', 'request_timeout', 'auth_timeout', 'refresh_window', 'max_retries', 'retry_delay_ms' }) do
+    if config[key] < 0 or config[key] ~= math.floor(config[key]) then
+      error('ai-complete: ' .. key .. ' must be a non-negative integer')
+    end
+  end
+  auth = nil
 end
 
-local function validate_command(command)
-  if type(command) ~= 'table' or #command == 0 then
-    return nil, 'LLM command must be a non-empty argv list'
+local function get_auth()
+  if not auth then
+    auth = dependencies.auth or Auth.new(config, dependencies.auth_deps)
   end
-
-  local argv = {}
-
-  for i, arg in ipairs(command) do
-    if type(arg) ~= 'string' then
-      return nil, 'LLM command argument ' .. i .. ' must be a string'
-    end
-
-    argv[i] = arg
-  end
-
-  return argv
+  return auth
 end
 
-local function command_for_prompt(prompt)
-  local configured_command = config.command
+local function visual_range(opts)
+  if type(opts) ~= 'table' or not opts.range or opts.range == 0 then
+    return nil, 'select text visually first'
+  end
 
-  if type(configured_command) == 'function' then
-    local ok, command = pcall(function()
-      return configured_command(prompt)
-    end)
+  local selection_type = vim.fn.visualmode()
+  if selection_type ~= 'v' and selection_type ~= 'V' and selection_type ~= '\022' then
+    return nil, 'select text visually first'
+  end
 
-    if not ok then
-      return nil, 'LLM command failed to build: ' .. tostring(command)
+  local first = vim.fn.getpos("'<")
+  local last = vim.fn.getpos("'>")
+  if first[2] == 0 or last[2] == 0 then
+    return nil, 'select text visually first'
+  end
+  if opts.line1 and opts.line2 then
+    local first_line = math.min(first[2], last[2])
+    local last_line = math.max(first[2], last[2])
+    if opts.line1 ~= first_line or opts.line2 ~= last_line then
+      return nil, 'the command range is not the last Visual selection'
     end
-
-    return validate_command(command)
   end
-
-  if type(configured_command) ~= 'table' then
-    return nil, 'LLM command must be an argv list or function'
-  end
-
-  local argv = {}
-  local inserted_prompt = false
-
-  for i, arg in ipairs(configured_command) do
-    if type(arg) ~= 'string' then
-      return nil, 'LLM command argument ' .. i .. ' must be a string'
-    end
-
-    local replaced, count = arg:gsub(PROMPT_PLACEHOLDER, function()
-      return prompt
-    end)
-
-    if count > 0 then
-      inserted_prompt = true
-    end
-
-    argv[i] = replaced
-  end
-
-  if #argv == 0 then
-    return nil, 'LLM command must be a non-empty argv list'
-  end
-
-  -- If the template omits {prompt}, append it as the final argv item.
-  if not inserted_prompt then
-    table.insert(argv, prompt)
-  end
-
-  return argv
+  return { first = first, last = last }
 end
 
-local function command_with_cwd(argv)
-  -- Keep execution in Neovim's cwd without shell-joining user-provided args.
-  local command = {
-    'sh',
-    '-c',
-    'cd "$1" && shift && exec "$@"',
-    'sh',
-    vim.fn.getcwd(),
-  }
-
-  return vim.list_extend(command, argv)
-end
-
-local function run_llm_command(argv)
-  local command = command_with_cwd(argv)
-
-  if type(vim.system) == 'function' then
-    local ok, result = pcall(function()
-      return vim.system(command, { text = true }):wait()
-    end)
-
-    if not ok then
-      return nil, 'LLM command failed: ' .. tostring(result)
-    end
-
-    if result.code ~= 0 then
-      return nil, 'LLM command failed'
-    end
-
-    return result.stdout or ''
-  end
-
-  -- Neovim < 0.10 does not have vim.system(); this fallback may include stderr.
-  local ok, output = pcall(vim.fn.system, command)
-
-  if not ok then
-    return nil, 'LLM command failed: ' .. tostring(output)
-  end
-
-  if vim.v.shell_error ~= 0 then
-    return nil, 'LLM command failed'
-  end
-
-  return output
-end
-
-local function prompt_for_llm(user_prompt, selected_text)
-  return table.concat({
-    'filename: ' .. vim.fn.expand('%:t'),
-    'path: ' .. vim.fn.expand('%:p'),
-    'prompt: ' .. user_prompt,
-    'selection:',
-    selected_text,
-    'Generate an exact replacement for the selected text using the user prompt and surrounding file context. Return only the replacement text.',
-  }, '\n')
-end
-
-function M.complete(user_prompt, has_range)
-  if has_range == 0 then
-    vim.notify('ai-complete: select text visually first', vim.log.levels.ERROR)
+function M.complete(instruction, opts)
+  local range, range_error = visual_range(opts)
+  if not range then
+    vim.notify('ai-complete: ' .. range_error, vim.log.levels.ERROR)
     return
   end
 
-  -- Use register z as scratch space, then restore it before returning.
   local old_z = vim.fn.getreg('z')
   local old_z_type = vim.fn.getregtype('z')
+  local applied = false
+  local failure
 
-  -- `gv` restores the last Visual selection before yanking it into register z.
-  vim.cmd([[silent normal! gv"zy]])
+  local ok = xpcall(function()
+    vim.cmd([[silent normal! gv"zy]])
+    local selected_text = vim.fn.getreg('z')
+    local selected_type = vim.fn.getregtype('z')
 
-  local selected_text = vim.fn.getreg('z')
-  local selected_type = vim.fn.getregtype('z')
+    local request, request_error = Request.new(
+      instruction,
+      selected_text,
+      selected_type,
+      range.first,
+      range.last,
+      dependencies.request_deps
+    )
+    if not request then
+      failure = request_error
+      return
+    end
 
-  local llm_prompt = prompt_for_llm(user_prompt, selected_text)
-  local command, command_error = command_for_prompt(llm_prompt)
+    local run_agent = dependencies.run_agent or agent.run
+    local output, agent_error = run_agent(request, config, {
+      auth = get_auth(),
+      provider = dependencies.provider,
+      execute_tool = dependencies.execute_tool,
+      tool_deps = dependencies.tool_deps,
+      provider_deps = dependencies.provider_deps,
+    })
+    if output == nil then
+      failure = agent_error
+      return
+    end
+    if type(output) ~= 'string' then
+      failure = 'provider returned a non-text replacement'
+      return
+    end
 
-  if not command then
-    vim.fn.setreg('z', old_z, old_z_type)
-    vim.notify('ai-complete: ' .. command_error, vim.log.levels.ERROR)
-    return
-  end
-
-  vim.notify('ai-complete: generating...', vim.log.levels.INFO)
-  vim.cmd('redraw')
-
-  local output, output_error = run_llm_command(command)
-
-  if output == nil then
-    vim.fn.setreg('z', old_z, old_z_type)
-    vim.notify('ai-complete: ' .. output_error, vim.log.levels.ERROR)
-    return
-  end
-
-  -- Preserve characterwise, linewise, or blockwise paste behavior.
-  vim.fn.setreg('z', output, selected_type)
-  vim.cmd([[silent normal! gv"zp]])
+    vim.fn.setreg('z', output, selected_type)
+    vim.cmd([[silent normal! gv"zp]])
+    applied = true
+  end, function()
+    return 'internal failure'
+  end)
 
   vim.fn.setreg('z', old_z, old_z_type)
 
+  if not ok and not failure then
+    failure = 'internal failure'
+  end
+  if not applied then
+    vim.notify('ai-complete: ' .. tostring(failure or 'edit failed'), vim.log.levels.ERROR)
+    return
+  end
+
   vim.notify('ai-complete: done.', vim.log.levels.INFO)
   vim.cmd('redraw')
+end
+
+function M.login(manual)
+  get_auth():login(manual)
+end
+
+function M.logout()
+  get_auth():logout()
+end
+
+function M._set_dependencies(value)
+  dependencies = value or {}
+  auth = nil
 end
 
 return M

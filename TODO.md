@@ -8,12 +8,6 @@ Support a conversation or session around each requested edit so the user can ite
 
 The interaction model is intentionally undecided. Do not commit to retry commands, refinement commands, or a particular session UI until the workflow has been explored further.
 
-## Authentication UX
-
-Authentication currently belongs to the configured LLM command. If a future integration requires plugin-managed authentication, provide a progressive in-Neovim flow similar to Windsurf's: let the user open the authorization page, copy its URL, display it inside Neovim, or provide an existing credential. Secret input must not expose credentials in the command line, messages, or logs.
-
-Keep the user in Neovim except when browser authorization is required, and provide a fallback when automatically opening the browser is unavailable.
-
 ## Long-prompt input
 
 Investigate a dedicated prompt input UI because long `:Ai` command-line prompts can disrupt Neovim's layout. The input should handle long or multiline prompts while keeping the selected code visible. `vim.ui.input()`, a floating window, or a scratch buffer are possible approaches, not requirements.

@@ -4,50 +4,68 @@ Repository notes for coding agents working on `vim-ai-complete`.
 
 ## Project overview
 
-This is a minimal Neovim plugin that exposes `:Ai <prompt>` for AI-assisted edits. The user visually selects text, runs `:Ai`, and the plugin replaces the selection with stdout from the `pi` coding agent.
+This is a Neovim plugin that exposes `:Ai <instruction>` for Codex-assisted edits. The user visually selects text, runs `:Ai`, and the plugin replaces the selection only after its complete provider/tool loop succeeds.
 
-The plugin intentionally invokes `pi` in a constrained way:
+The plugin owns its Codex subscription integration:
 
-- read-only tools only: `read,find,ls,grep`
-- `--thinking minimal` for speed
-- no edit/write tools; Neovim performs the actual replacement
-- prompt asks for replacement text only
+- OAuth authorization-code login with PKCE through `:AiLogin` / `:AiLogin!`
+- private, persistent credentials and refresh handling
+- direct Codex Responses requests through argv-form `curl`
+- a blocking model/tool loop
+- local read-only `read`, `find`, `ls`, and `grep` tools
+
+It does not invoke an external coding agent or expose a configurable command backend.
 
 ## Repository layout
 
 - `plugin/ai_complete.lua`
-  - Neovim runtime entrypoint.
-  - Guards against double loading with `vim.g.loaded_ai_complete`.
-  - Defines the public `:Ai` command.
-  - Adds a lowercase `:ai` command-line abbreviation.
+  - Neovim runtime entrypoint and public commands.
 
 - `lua/ai_complete/init.lua`
-  - Main implementation module.
-  - Builds the prompt sent to `pi`.
-  - Captures the visual selection using register `z`.
-  - Calls the external `pi` executable with `vim.fn.system`.
-  - Replaces the selected text with the command output.
-  - Restores register `z` afterward.
+  - Configuration, authentication commands, and protected Visual replacement.
 
-- `README.md`
-  - User-facing description, usage, and installation notes.
+- `lua/ai_complete/request.lua`
+  - Per-edit request metadata.
 
-- `LICENSE`
-  - MIT license.
+- `lua/ai_complete/agent.lua`
+  - Credential, provider, tool-call, and transcript loop.
+
+- `lua/ai_complete/auth/`
+  - Secure credential store and Codex OAuth/refresh lifecycle.
+
+- `lua/ai_complete/transport/curl.lua`
+  - Secret-safe blocking HTTP transport and retries.
+
+- `lua/ai_complete/providers/openai_codex.lua`
+  - Codex request construction and SSE Responses parsing.
+
+- `lua/ai_complete/tools/`
+  - Definitions and implementations of the four read-only tools.
+
+- `tests/`
+  - Headless deterministic suite and explicit live smoke harness.
 
 ## Important behavior to preserve
 
-- `:Ai` is selection-oriented. The current implementation relies on `gv` to restore the previous visual selection.
+- `:Ai` is selection-oriented and relies on `gv` to restore the prior Visual selection.
 - Register `z` is temporary scratch space. Always save and restore its contents and type.
-- Failed `pi` calls should leave the buffer unchanged.
-- The generated text should be pasted using the original selection type: characterwise, linewise, or blockwise.
-- Keep the implementation dependency-free and compatible with standard Neovim Lua APIs.
+- Failed auth, transport, protocol, tool, loop, and model operations leave the buffer unchanged.
+- Generated text uses the original characterwise, linewise, or blockwise selection type.
+- Empty successful output deletes the selection.
+- A successful replacement remains one normal Neovim undo step.
+- No model-provided tool input may write a file or execute an arbitrary command.
+- Credentials, authorization codes, account IDs, request headers, and tool output must not appear in notifications.
 
 ## Development notes
 
-- There is currently no package metadata, test suite, formatter config, or CI.
-- Keep changes small and plugin-style: simple Lua files under `plugin/` and `lua/`.
-- Prefer clear behavior over clever abstractions; this project is intentionally tiny.
-- If changing the `pi` invocation, update `README.md` so documented behavior stays accurate.
-- If adding real line-range support, do not assume `opts.range` alone is enough; the current replacement path still uses `gv`.
-- If adding async execution, preserve the current safety properties: no register clobbering, failed calls do not edit the buffer, and user feedback is visible.
+- Keep authentication, provider protocol, agent state, tools, and buffer mutation as separate responsibilities.
+- Keep provider endpoints, browser opening, randomness, time, and HTTP execution injectable for tests.
+- Use argv-form process execution; never shell-join model or credential data.
+- If changing provider behavior or configuration, update `README.md`.
+- Run deterministic tests with:
+
+  ```bash
+  nvim --headless -u tests/minimal_init.lua -l tests/run.lua
+  ```
+
+- The live smoke harness is `tests/live_smoke.lua`; it requires a temporary plugin-format credential path in `AI_COMPLETE_SMOKE_AUTH`.
