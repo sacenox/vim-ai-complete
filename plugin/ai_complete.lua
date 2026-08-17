@@ -5,7 +5,7 @@ end
 vim.g.loaded_ai_complete = 1
 
 vim.api.nvim_create_user_command('Ai', function(opts)
-  require('ai_complete').complete(opts.args, opts.range)
+  require('ai_complete').dispatch(opts)
 end, {
   nargs = '*',
   range = true,

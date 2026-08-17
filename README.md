@@ -8,6 +8,8 @@ A small Neovim plugin for applying an LLM instruction to selected text.
 2. Run `:Ai <prompt>`.
 3. The selected text is replaced when generation succeeds.
 
+Run `:Ai` without a prompt to open a multiline input window below the last selected line. Press `<Enter>` to add a line and `<S-Enter>` to submit, including when the prompt is empty. Press `<Esc>` or `<C-c>` to cancel. The status area shows `Generating...` while the blocking LLM command runs.
+
 Characterwise, linewise, and blockwise selections are supported. If generation fails, the buffer is left unchanged. A completed replacement is a normal Neovim edit and can be reverted with `u`.
 
 ## LLM command

@@ -4,14 +4,16 @@ Repository notes for coding agents working on `vim-ai-complete`.
 
 ## Project overview
 
-This is a minimal Neovim plugin that exposes `:Ai <prompt>` for AI-assisted edits. The user visually selects text, runs `:Ai`, and the plugin replaces the selection with stdout from the `pi` coding agent.
+This is a minimal Neovim plugin that exposes `:Ai <prompt>` for AI-assisted edits. The user visually selects text, runs `:Ai`, and the plugin replaces the selection with standard output from the configured assistant command.
 
-The plugin intentionally invokes `pi` in a constrained way:
+The plugin uses `pi` by default and invokes it with these constraints:
 
-- read-only tools only: `read,find,ls,grep`
-- `--thinking minimal` for speed
-- no edit/write tools; Neovim performs the actual replacement
-- prompt asks for replacement text only
+- read-only tools: `read,find,ls,grep`
+- `--thinking high`
+- no edit or write tools; Neovim performs the replacement
+- a prompt that requests replacement text only
+
+Users can configure another assistant with `require("ai_complete").setup()`. The command can be an argument list or a function that returns one. It must accept the generated prompt and write the replacement text to standard output.
 
 ## Repository layout
 

@@ -1,6 +1,7 @@
 local M = {}
 
 local PROMPT_PLACEHOLDER = '{prompt}'
+local active_prompt
 
 local config = {
   command = {
@@ -138,6 +139,166 @@ local function run_llm_command(argv)
   return output
 end
 
+local function notify_error(message)
+  vim.notify('ai-complete: ' .. message, vim.log.levels.ERROR)
+end
+
+local function has_visual_range(opts)
+  if opts.range ~= 2 then
+    return false
+  end
+
+  local start_mark = vim.fn.getpos("'<")
+  local end_mark = vim.fn.getpos("'>")
+
+  return start_mark[2] > 0
+    and end_mark[2] > 0
+    and opts.line1 == start_mark[2]
+    and opts.line2 == end_mark[2]
+end
+
+local function close_prompt(state, restore_focus)
+  if state.closed then
+    return
+  end
+
+  state.closed = true
+
+  if active_prompt == state then
+    active_prompt = nil
+  end
+
+  if vim.api.nvim_get_current_win() == state.prompt_win then
+    pcall(vim.cmd, 'stopinsert')
+  end
+
+  if vim.api.nvim_win_is_valid(state.prompt_win) then
+    pcall(vim.api.nvim_win_close, state.prompt_win, true)
+  end
+
+  if vim.api.nvim_buf_is_valid(state.prompt_buf) then
+    pcall(vim.api.nvim_buf_delete, state.prompt_buf, { force = true })
+  end
+
+  if restore_focus and vim.api.nvim_win_is_valid(state.source_win) then
+    pcall(vim.api.nvim_set_current_win, state.source_win)
+  end
+end
+
+local function source_is_valid(state)
+  return vim.api.nvim_win_is_valid(state.source_win)
+    and vim.api.nvim_buf_is_valid(state.source_buf)
+    and vim.api.nvim_win_get_buf(state.source_win) == state.source_buf
+    and vim.api.nvim_buf_get_changedtick(state.source_buf) == state.changedtick
+    and has_visual_range(state.opts)
+end
+
+function M.prompt(opts)
+  if not has_visual_range(opts) then
+    notify_error('select text visually first')
+    return
+  end
+
+  if active_prompt then
+    close_prompt(active_prompt, false)
+  end
+
+  local source_win = vim.api.nvim_get_current_win()
+  local source_buf = vim.api.nvim_get_current_buf()
+  local selection_end = vim.fn.getpos("'>")
+  local source_width = vim.api.nvim_win_get_width(source_win)
+  local source_height = vim.api.nvim_win_get_height(source_win)
+  local available_width = math.max(1, source_width - 2)
+  local available_height = math.max(1, source_height - 2)
+  local prompt_width = math.min(80, math.max(20, math.floor(source_width * 0.7)), available_width)
+  local prompt_height = math.min(5, available_height)
+  local prompt_buf = vim.api.nvim_create_buf(false, true)
+
+  vim.bo[prompt_buf].bufhidden = 'wipe'
+  vim.bo[prompt_buf].filetype = 'ai-complete-prompt'
+
+  local prompt_win = vim.api.nvim_open_win(prompt_buf, true, {
+    relative = 'win',
+    win = source_win,
+    bufpos = { selection_end[2] - 1, math.max(0, selection_end[3] - 1) },
+    row = 1,
+    col = 0,
+    anchor = 'NW',
+    width = prompt_width,
+    height = prompt_height,
+    border = 'single',
+    style = 'minimal',
+  })
+
+  local state = {
+    changedtick = vim.api.nvim_buf_get_changedtick(source_buf),
+    closed = false,
+    opts = opts,
+    prompt_buf = prompt_buf,
+    prompt_win = prompt_win,
+    source_buf = source_buf,
+    source_win = source_win,
+  }
+
+  active_prompt = state
+
+  local function cancel(restore_focus)
+    close_prompt(state, restore_focus)
+  end
+
+  local function submit()
+    if state.closed then
+      return
+    end
+
+    local prompt = table.concat(vim.api.nvim_buf_get_lines(prompt_buf, 0, -1, false), '\n')
+    close_prompt(state, true)
+
+    -- Let the submit mapping finish so Neovim can leave Insert mode and redraw
+    -- before the blocking LLM command starts.
+    vim.schedule(function()
+      if not source_is_valid(state) then
+        notify_error('the selected text changed while entering the prompt')
+        return
+      end
+
+      M.complete(prompt, opts.range)
+    end)
+  end
+
+  vim.keymap.set({ 'i', 'n' }, '<S-CR>', submit, { buffer = prompt_buf, nowait = true })
+  vim.keymap.set({ 'i', 'n' }, '<Esc>', function()
+    cancel(true)
+  end, { buffer = prompt_buf, nowait = true })
+  vim.keymap.set({ 'i', 'n' }, '<C-c>', function()
+    cancel(true)
+  end, { buffer = prompt_buf, nowait = true })
+
+  vim.api.nvim_create_autocmd('WinLeave', {
+    buffer = prompt_buf,
+    once = true,
+    callback = function()
+      cancel(false)
+    end,
+  })
+
+  vim.cmd('startinsert')
+end
+
+function M.dispatch(opts)
+  if not has_visual_range(opts) then
+    notify_error('select text visually first')
+    return
+  end
+
+  if opts.args == '' then
+    M.prompt(opts)
+    return
+  end
+
+  M.complete(opts.args, opts.range)
+end
+
 local function prompt_for_llm(user_prompt, selected_text)
   return table.concat({
     'filename: ' .. vim.fn.expand('%:t'),
@@ -174,7 +335,7 @@ function M.complete(user_prompt, has_range)
     return
   end
 
-  vim.notify('ai-complete: generating...', vim.log.levels.INFO)
+  vim.notify('ai-complete: Generating...', vim.log.levels.INFO)
   vim.cmd('redraw')
 
   local output, output_error = run_llm_command(command)
