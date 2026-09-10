@@ -27,18 +27,6 @@ return {
 }
 ```
 
-Note: when lazy-loading with `cmd = { "Ai", "AiComplete" }`, the lowercase `:ai` abbreviation is only available after the plugin has loaded. Use `:Ai` to trigger loading, or define the abbreviation in `init`:
-
-```lua
-return {
-  "sacenox/vim-ai-complete",
-  cmd = { "Ai", "AiComplete" },
-  init = function()
-    vim.cmd([[cabbrev ai Ai]])
-  end,
-}
-```
-
 ### Native packages
 
 Without a plugin manager:

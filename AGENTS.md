@@ -21,7 +21,6 @@ Users can configure another assistant with `require("ai_complete").setup()`. The
   - Neovim runtime entrypoint.
   - Guards against double loading with `vim.g.loaded_ai_complete`.
   - Defines the public `:Ai` command.
-  - Adds a lowercase `:ai` command-line abbreviation.
 
 - `lua/ai_complete/init.lua`
   - Main implementation module.

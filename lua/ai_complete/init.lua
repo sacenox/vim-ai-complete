@@ -1,6 +1,23 @@
 local M = {}
 
+-- Constants and module state
+
 local PROMPT_PLACEHOLDER = '{prompt}'
+local REPLACEMENT_INSTRUCTION =
+  'Generate an exact replacement for the selected text using the user prompt and surrounding file context. Return only the replacement text exactly as it should appear in the file. Do not add commentary, formatting wrappers, or surrounding code fences.'
+local COMPLETION_INSTRUCTION =
+  'Complete the text at the cursor based on the surrounding context. Decide what and how much to insert, and read additional context as needed. Return only the text to insert, without repeating existing text, commentary, formatting wrappers, or surrounding code fences.'
+
+---@class AiCompletePromptState
+---@field changedtick integer
+---@field closed boolean
+---@field opts { range: integer, line1: integer, line2: integer }
+---@field prompt_buf integer
+---@field prompt_win integer
+---@field source_buf integer
+---@field source_win integer
+
+---@type AiCompletePromptState?
 local active_prompt
 
 local config = {
@@ -23,6 +40,21 @@ function M.setup(opts)
   if opts.command ~= nil then
     config.command = opts.command
   end
+end
+
+-- Shared feedback, file context, and LLM execution
+
+local function notify_error(message)
+  vim.notify('ai-complete: ' .. message, vim.log.levels.ERROR)
+end
+
+local function notify_done()
+  vim.notify('ai-complete: done.', vim.log.levels.INFO)
+  vim.cmd('redraw')
+end
+
+local function file_context()
+  return 'filename: ' .. vim.fn.expand('%:t') .. '\npath: ' .. vim.fn.expand('%:p')
 end
 
 local function validate_command(command)
@@ -163,8 +195,50 @@ local function generate(prompt)
   return output
 end
 
-local function notify_error(message)
-  vim.notify('ai-complete: ' .. message, vim.log.levels.ERROR)
+-- Feature: replace a visual selection
+
+local function prompt_for_selection(user_prompt, selected_text)
+  return table.concat({
+    file_context(),
+    'prompt: ' .. user_prompt,
+    'selection:',
+    selected_text,
+    REPLACEMENT_INSTRUCTION,
+  }, '\n')
+end
+
+function M.complete(user_prompt, has_range)
+  if has_range == 0 then
+    notify_error('select text visually first')
+    return
+  end
+
+  -- Restore scratch register z even if yanking, generation, or replacement fails.
+  local old_z = vim.fn.getreg('z', 1, true)
+  local old_z_type = vim.fn.getregtype('z')
+
+  local ok, err = pcall(function()
+    -- `gv` restores the last Visual selection before yanking it into register z.
+    vim.cmd([[silent normal! gv"zy]])
+
+    local selected_text = vim.fn.getreg('z')
+    local selected_type = vim.fn.getregtype('z')
+
+    local output = generate(prompt_for_selection(user_prompt, selected_text))
+
+    -- Preserve characterwise, linewise, or blockwise paste behavior.
+    vim.fn.setreg('z', output, selected_type)
+    vim.cmd([[silent normal! gv"zp]])
+  end)
+
+  vim.fn.setreg('z', old_z, old_z_type)
+
+  if not ok then
+    notify_error(tostring(err))
+    return
+  end
+
+  notify_done()
 end
 
 local function has_visual_range(opts)
@@ -190,7 +264,9 @@ local function close_prompt(state, restore_focus)
   end
 
   if vim.api.nvim_get_current_win() == state.prompt_win then
-    pcall(vim.cmd, 'stopinsert')
+    pcall(function()
+      vim.cmd('stopinsert')
+    end)
   end
 
   if vim.api.nvim_win_is_valid(state.prompt_win) then
@@ -251,6 +327,7 @@ function M.prompt(opts)
     style = 'minimal',
   })
 
+  ---@type AiCompletePromptState
   local state = {
     changedtick = vim.api.nvim_buf_get_changedtick(source_buf),
     closed = false,
@@ -320,51 +397,7 @@ function M.dispatch(opts)
   M.complete(opts.args, opts.range)
 end
 
-local function prompt_for_llm(user_prompt, selected_text)
-  return table.concat({
-    'filename: ' .. vim.fn.expand('%:t'),
-    'path: ' .. vim.fn.expand('%:p'),
-    'prompt: ' .. user_prompt,
-    'selection:',
-    selected_text,
-    'Generate an exact replacement for the selected text using the user prompt and surrounding file context. Return only the replacement text exactly as it should appear in the file. Do not add commentary, formatting wrappers, or surrounding code fences.',
-  }, '\n')
-end
-
-function M.complete(user_prompt, has_range)
-  if has_range == 0 then
-    vim.notify('ai-complete: select text visually first', vim.log.levels.ERROR)
-    return
-  end
-
-  -- Restore scratch register z even if yanking, generation, or replacement fails.
-  local old_z = vim.fn.getreg('z', 1, true)
-  local old_z_type = vim.fn.getregtype('z')
-
-  local ok, err = pcall(function()
-    -- `gv` restores the last Visual selection before yanking it into register z.
-    vim.cmd([[silent normal! gv"zy]])
-
-    local selected_text = vim.fn.getreg('z')
-    local selected_type = vim.fn.getregtype('z')
-
-    local output = generate(prompt_for_llm(user_prompt, selected_text))
-
-    -- Preserve characterwise, linewise, or blockwise paste behavior.
-    vim.fn.setreg('z', output, selected_type)
-    vim.cmd([[silent normal! gv"zp]])
-  end)
-
-  vim.fn.setreg('z', old_z, old_z_type)
-
-  if not ok then
-    notify_error(tostring(err))
-    return
-  end
-
-  vim.notify('ai-complete: done.', vim.log.levels.INFO)
-  vim.cmd('redraw')
-end
+-- Feature: complete at the cursor
 
 function M.complete_at_cursor()
   local buf = vim.api.nvim_get_current_buf()
@@ -373,9 +406,8 @@ function M.complete_at_cursor()
 
   local ok, err = pcall(function()
     local prompt = table.concat({
-      'filename: ' .. vim.fn.expand('%:t'),
-      'path: ' .. vim.fn.expand('%:p'),
-      'Complete the text at the cursor based on the surrounding context. Decide what and how much to insert, and read additional context as needed. Return only the text to insert, without repeating existing text, commentary, formatting wrappers, or surrounding code fences.',
+      file_context(),
+      COMPLETION_INSTRUCTION,
       'Insertion is immediately before line ' .. cursor[1] .. ', byte column ' .. (col + 1) .. ' (1-based).',
       'Current buffer (including unsaved changes):',
       table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'),
@@ -392,8 +424,7 @@ function M.complete_at_cursor()
     return
   end
 
-  vim.notify('ai-complete: done.', vim.log.levels.INFO)
-  vim.cmd('redraw')
+  notify_done()
 end
 
 return M
