@@ -106,6 +106,11 @@ local function command_with_cwd(argv)
   return vim.list_extend(command, argv)
 end
 
+local function command_failure(code, output)
+  local details = vim.trim(output or '')
+  return 'LLM command failed (exit ' .. code .. ')' .. (details ~= '' and ': ' .. details or '')
+end
+
 local function run_llm_command(argv)
   local command = command_with_cwd(argv)
 
@@ -119,7 +124,7 @@ local function run_llm_command(argv)
     end
 
     if result.code ~= 0 then
-      return nil, 'LLM command failed'
+      return nil, command_failure(result.code, result.stderr)
     end
 
     return result.stdout or ''
@@ -133,7 +138,7 @@ local function run_llm_command(argv)
   end
 
   if vim.v.shell_error ~= 0 then
-    return nil, 'LLM command failed'
+    return nil, command_failure(vim.v.shell_error, output)
   end
 
   return output
@@ -151,10 +156,7 @@ local function has_visual_range(opts)
   local start_mark = vim.fn.getpos("'<")
   local end_mark = vim.fn.getpos("'>")
 
-  return start_mark[2] > 0
-    and end_mark[2] > 0
-    and opts.line1 == start_mark[2]
-    and opts.line2 == end_mark[2]
+  return start_mark[2] > 0 and end_mark[2] > 0 and opts.line1 == start_mark[2] and opts.line2 == end_mark[2]
 end
 
 local function close_prompt(state, restore_focus)
@@ -306,7 +308,7 @@ local function prompt_for_llm(user_prompt, selected_text)
     'prompt: ' .. user_prompt,
     'selection:',
     selected_text,
-    'Generate an exact replacement for the selected text using the user prompt and surrounding file context. Return only the replacement text.',
+    'Generate an exact replacement for the selected text using the user prompt and surrounding file context. Return only the replacement text exactly as it should appear in the file. Do not add commentary, formatting wrappers, or surrounding code fences.',
   }, '\n')
 end
 
@@ -316,41 +318,44 @@ function M.complete(user_prompt, has_range)
     return
   end
 
-  -- Use register z as scratch space, then restore it before returning.
-  local old_z = vim.fn.getreg('z')
+  -- Restore scratch register z even if yanking, generation, or replacement fails.
+  local old_z = vim.fn.getreg('z', 1, true)
   local old_z_type = vim.fn.getregtype('z')
 
-  -- `gv` restores the last Visual selection before yanking it into register z.
-  vim.cmd([[silent normal! gv"zy]])
+  local ok, err = pcall(function()
+    -- `gv` restores the last Visual selection before yanking it into register z.
+    vim.cmd([[silent normal! gv"zy]])
 
-  local selected_text = vim.fn.getreg('z')
-  local selected_type = vim.fn.getregtype('z')
+    local selected_text = vim.fn.getreg('z')
+    local selected_type = vim.fn.getregtype('z')
 
-  local llm_prompt = prompt_for_llm(user_prompt, selected_text)
-  local command, command_error = command_for_prompt(llm_prompt)
+    local llm_prompt = prompt_for_llm(user_prompt, selected_text)
+    local command, command_error = command_for_prompt(llm_prompt)
 
-  if not command then
-    vim.fn.setreg('z', old_z, old_z_type)
-    vim.notify('ai-complete: ' .. command_error, vim.log.levels.ERROR)
-    return
-  end
+    if not command then
+      error(command_error, 0)
+    end
 
-  vim.notify('ai-complete: Generating...', vim.log.levels.INFO)
-  vim.cmd('redraw')
+    vim.notify('ai-complete: Generating...', vim.log.levels.INFO)
+    vim.cmd('redraw')
 
-  local output, output_error = run_llm_command(command)
+    local output, output_error = run_llm_command(command)
 
-  if output == nil then
-    vim.fn.setreg('z', old_z, old_z_type)
-    vim.notify('ai-complete: ' .. output_error, vim.log.levels.ERROR)
-    return
-  end
+    if output == nil then
+      error(output_error, 0)
+    end
 
-  -- Preserve characterwise, linewise, or blockwise paste behavior.
-  vim.fn.setreg('z', output, selected_type)
-  vim.cmd([[silent normal! gv"zp]])
+    -- Preserve characterwise, linewise, or blockwise paste behavior.
+    vim.fn.setreg('z', output, selected_type)
+    vim.cmd([[silent normal! gv"zp]])
+  end)
 
   vim.fn.setreg('z', old_z, old_z_type)
+
+  if not ok then
+    notify_error(tostring(err))
+    return
+  end
 
   vim.notify('ai-complete: done.', vim.log.levels.INFO)
   vim.cmd('redraw')

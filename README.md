@@ -71,3 +71,17 @@ git clone https://github.com/sacenox/vim-ai-complete.git
 ```
 
 Then restart Neovim.
+
+## Formatting
+
+Use [StyLua](https://github.com/JohnnyMorganz/StyLua) with the repository's `stylua.toml`:
+
+```sh
+stylua lua/ plugin/
+```
+
+To check formatting without changing files:
+
+```sh
+stylua --check lua/ plugin/
+```
