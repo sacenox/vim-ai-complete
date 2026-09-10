@@ -14,10 +14,7 @@ Add a plugin spec like this:
 -- ~/.config/nvim/lua/plugins/ai-complete.lua
 return {
   "sacenox/vim-ai-complete",
-  cmd = { "Ai" },
-  keys = {
-    { "<leader>a", function() require("ai_complete").complete_at_cursor() end, desc = "AI completion at cursor" },
-  },
+  cmd = { "Ai", "AiComplete" },
 }
 ```
 
@@ -26,21 +23,16 @@ For local development, use `dir` instead:
 ```lua
 return {
   dir = "~/src/vim-ai-complete",
-  cmd = { "Ai" },
-  keys = {
-    { "<leader>a", function() require("ai_complete").complete_at_cursor() end, desc = "AI completion at cursor" },
-  },
+  cmd = { "Ai", "AiComplete" },
 }
 ```
 
-The `keys` entry also loads the plugin when you press `<leader>a`; omit it if that key is already used in your configuration.
-
-Note: when lazy-loading with `cmd = { "Ai" }`, the lowercase `:ai` abbreviation is only available after the plugin has loaded. Use `:Ai` to trigger loading, or define the abbreviation in `init`:
+Note: when lazy-loading with `cmd = { "Ai", "AiComplete" }`, the lowercase `:ai` abbreviation is only available after the plugin has loaded. Use `:Ai` to trigger loading, or define the abbreviation in `init`:
 
 ```lua
 return {
   "sacenox/vim-ai-complete",
-  cmd = { "Ai" },
+  cmd = { "Ai", "AiComplete" },
   init = function()
     vim.cmd([[cabbrev ai Ai]])
   end,
@@ -58,6 +50,8 @@ git clone https://github.com/sacenox/vim-ai-complete.git
 
 ## Usage
 
+### Replace visual selection
+
 1. Select text in Visual mode.
 2. Run `:Ai <prompt>`.
 3. The selected text is replaced when generation succeeds.
@@ -68,9 +62,20 @@ Characterwise, linewise, and blockwise selections are supported. If generation f
 
 ### Completion at the cursor
 
-Press `<leader>a` in Normal mode to insert a completion at the cursor, before the current character, without selecting text or entering a prompt. The agent receives the current buffer (including unsaved changes) and cursor position, and decides what to insert and whether to read additional context. Generation is blocking, just like `:Ai`.
+Run `:AiComplete` to insert a completion at the cursor, before the current character, without selecting text or entering a prompt. The agent receives the current buffer (including unsaved changes) and cursor position, and decides what to insert and whether to read additional context. Generation is blocking, just like `:Ai`.
 
-The insertion is a single undoable edit: press `u` to discard it. Failed generation leaves the buffer unchanged. The default mapping is only installed if it does not conflict with an existing Normal-mode mapping.
+The insertion is a single undoable edit: press `u` to discard it. Failed generation leaves the buffer unchanged.
+
+### Optional key mappings
+
+The plugin does not bind keys automatically. For example, add these mappings to your Neovim configuration to use `<leader>a` for completion in Normal mode and the prompt window in Visual mode:
+
+```lua
+vim.keymap.set("n", "<leader>a", "<cmd>AiComplete<CR>", { desc = "AI completion at cursor" })
+vim.keymap.set("x", "<leader>a", ":Ai<CR>", { desc = "AI replace selection" })
+```
+
+The Visual-mode mapping uses `:` to preserve the selected range. Both mappings also work with the command-based lazy-loading examples above.
 
 ## LLM command
 
