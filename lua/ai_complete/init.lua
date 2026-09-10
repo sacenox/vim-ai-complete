@@ -144,6 +144,25 @@ local function run_llm_command(argv)
   return output
 end
 
+local function generate(prompt)
+  local command, command_error = command_for_prompt(prompt)
+
+  if not command then
+    error(command_error, 0)
+  end
+
+  vim.notify('ai-complete: Generating...', vim.log.levels.INFO)
+  vim.cmd('redraw')
+
+  local output, output_error = run_llm_command(command)
+
+  if output == nil then
+    error(output_error, 0)
+  end
+
+  return output
+end
+
 local function notify_error(message)
   vim.notify('ai-complete: ' .. message, vim.log.levels.ERROR)
 end
@@ -329,21 +348,7 @@ function M.complete(user_prompt, has_range)
     local selected_text = vim.fn.getreg('z')
     local selected_type = vim.fn.getregtype('z')
 
-    local llm_prompt = prompt_for_llm(user_prompt, selected_text)
-    local command, command_error = command_for_prompt(llm_prompt)
-
-    if not command then
-      error(command_error, 0)
-    end
-
-    vim.notify('ai-complete: Generating...', vim.log.levels.INFO)
-    vim.cmd('redraw')
-
-    local output, output_error = run_llm_command(command)
-
-    if output == nil then
-      error(output_error, 0)
-    end
+    local output = generate(prompt_for_llm(user_prompt, selected_text))
 
     -- Preserve characterwise, linewise, or blockwise paste behavior.
     vim.fn.setreg('z', output, selected_type)
@@ -351,6 +356,36 @@ function M.complete(user_prompt, has_range)
   end)
 
   vim.fn.setreg('z', old_z, old_z_type)
+
+  if not ok then
+    notify_error(tostring(err))
+    return
+  end
+
+  vim.notify('ai-complete: done.', vim.log.levels.INFO)
+  vim.cmd('redraw')
+end
+
+function M.complete_at_cursor()
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row, col = cursor[1] - 1, cursor[2]
+
+  local ok, err = pcall(function()
+    local prompt = table.concat({
+      'filename: ' .. vim.fn.expand('%:t'),
+      'path: ' .. vim.fn.expand('%:p'),
+      'Complete the text at the cursor based on the surrounding context. Decide what and how much to insert, and read additional context as needed. Return only the text to insert, without repeating existing text, commentary, formatting wrappers, or surrounding code fences.',
+      'Insertion is immediately before line ' .. cursor[1] .. ', byte column ' .. (col + 1) .. ' (1-based).',
+      'Current buffer (including unsaved changes):',
+      table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'),
+    }, '\n')
+    local output = generate(prompt)
+
+    -- Close the previous undo block so rejecting this completion preserves earlier edits.
+    vim.bo[buf].undolevels = vim.bo[buf].undolevels
+    vim.api.nvim_buf_set_text(buf, row, col, row, col, vim.split(output, '\n', { plain = true }))
+  end)
 
   if not ok then
     notify_error(tostring(err))

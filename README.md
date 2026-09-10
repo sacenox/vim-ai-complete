@@ -12,6 +12,12 @@ Run `:Ai` without a prompt to open a multiline input window below the last selec
 
 Characterwise, linewise, and blockwise selections are supported. If generation fails, the buffer is left unchanged. A completed replacement is a normal Neovim edit and can be reverted with `u`.
 
+### Completion at the cursor
+
+Press `<leader>a` in Normal mode to insert a completion at the cursor, before the current character, without selecting text or entering a prompt. The agent receives the current buffer (including unsaved changes) and cursor position, and decides what to insert and whether to read additional context. Generation is blocking, just like `:Ai`.
+
+The insertion is a single undoable edit: press `u` to discard it. Failed generation leaves the buffer unchanged. The default mapping is only installed if it does not conflict with an existing Normal-mode mapping.
+
 ## LLM command
 
 The plugin uses `pi` by default. Make sure it is available on Neovim's `$PATH`, or configure another command:
@@ -37,6 +43,9 @@ Add a plugin spec like this:
 return {
   "sacenox/vim-ai-complete",
   cmd = { "Ai" },
+  keys = {
+    { "<leader>a", function() require("ai_complete").complete_at_cursor() end, desc = "AI completion at cursor" },
+  },
 }
 ```
 
@@ -46,8 +55,13 @@ For local development, use `dir` instead:
 return {
   dir = "~/src/vim-ai-complete",
   cmd = { "Ai" },
+  keys = {
+    { "<leader>a", function() require("ai_complete").complete_at_cursor() end, desc = "AI completion at cursor" },
+  },
 }
 ```
+
+The `keys` entry also loads the plugin when you press `<leader>a`; omit it if that key is already used in your configuration.
 
 Note: when lazy-loading with `cmd = { "Ai" }`, the lowercase `:ai` abbreviation is only available after the plugin has loaded. Use `:Ai` to trigger loading, or define the abbreviation in `init`:
 
